@@ -1,0 +1,432 @@
+---
+title: "Project 26"
+author: "Bharat Kumar Sangal"
+date: "22 November 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+black_friday <- read.csv("C:/Users/bhara/OneDrive/Desktop/PROJECT/BlackFriday.csv/BlackFriday.csv")
+black_friday_labels = black_friday[,1]
+black_friday_x = black_friday[-1]
+```
+
+
+```{r}
+str(black_friday)
+```
+
+```{r}
+library(tidyverse)
+library(GGally)
+library(stringr)
+library(ggplot2)
+library(dplyr)
+library(arules)
+library(arulesViz)
+library(RColorBrewer)
+library(relaimpo)
+library(randomForest)
+library(caret)
+library(highcharter)
+```
+
+
+```{r}
+length(unique(black_friday$Product_ID))
+```
+
+
+# Identifying Na Values  percent
+```{r}
+d = c()
+e = c()
+for (i in colnames(black_friday_x)){
+  d = c(d,nrow(black_friday_x[is.na(black_friday_x[i]),]))
+  
+}
+d/nrow(black_friday)*100
+```
+
+```{r}
+naniar:: vis_miss(black_friday[1:20000, ])
+```
+
+# Nothing special from the product_id feature, I assume that there is no the most pruchaesed item.
+  
+```{r}
+
+
+black_friday_x_20<- black_friday_x %>% group_by(Product_ID) %>% count() %>% arrange(desc(n)) 
+black_friday_x_20[1:20,] %>% ggplot(aes(x=Product_ID,y=n,fill=Product_ID))+geom_col()+theme(axis.text.x = element_text(angle=45,vjust=0.5),legend.position = "none")
+
+```
+
+
+
+# Amount spent at purchase of single product is mostly mid ranged & left skewed, people prefer buying cheaper products more.
+```{r}
+black_friday_x %>% ggplot(aes(x=Purchase))+geom_histogram(fill="blue")
+```
+
+
+# From the 3 boxplots below we can tell that men spend more money on shopping that women do
+
+```{r}
+
+p1<-black_friday_x %>% ggplot(aes(x=Gender,y=Purchase,fill=Gender))+geom_boxplot()
+p2<-black_friday_x %>% ggplot(aes(x=City_Category,y=Purchase,fill=Gender))+geom_boxplot()
+p3<-black_friday_x %>% ggplot(aes(x=as.factor(Marital_Status),y=Purchase,fill=Gender))+geom_boxplot()
+gridExtra::grid.arrange(p1,p2,p3)
+```
+
+
+#Eventually, below tidied the raw data.
+From the above data visualization,we find that men are morely to buy,so there comes our next question:men of what age will spend more money.Let's find out.
+
+```{r}
+black_friday_x$Stay_In_Current_City_Years<-if_else(black_friday_x$Stay_In_Current_City_Years == '4+',4, as.numeric(black_friday_x$Stay_In_Current_City_Years))
+
+black_friday_x<-black_friday_x %>% separate(Age,c("bottom_range","upper_range")) %>% mutate(bottom_range=as.numeric(bottom_range),upper_range=as.numeric(upper_range)) %>% mutate(Age=(bottom_range+upper_range)/2) 
+
+
+black_friday_x$upper_range <- NULL
+black_friday_x$bottom_range <- NULL
+
+
+black_friday_x$Age<-ifelse(is.na(black_friday_x$Age),55,black_friday_x$Age)
+
+```
+
+
+
+
+
+#We can see that:
+
+    Middle-ages men(35-55) would like to spend more money
+    Young men pay less(maybe they don't earn enough money at that age)
+    As far as city category,men in C city top on the list, which makes sense
+
+
+```{r}
+black_friday_x<-black_friday_x %>% mutate(age_range=case_when(Age <= 18 ~"Young",Age > 18 & Age <= 35 ~ "Mature",Age > 35 & Age <= 55 ~ "Middle-aged"))
+p1<-black_friday_x %>% filter(Gender=="M") %>% group_by(age_range,City_Category) %>% summarise(purchase=median(Purchase)) %>% ggplot(aes(x=age_range,y=City_Category,fill=purchase))+geom_tile()+scale_fill_continuous(low="blue",high="red")
+p2<-black_friday_x %>% filter(Gender=="M") %>% ggplot(aes(x=as.factor(age_range),y=Purchase,fill=as.factor(age_range)))+geom_boxplot()+labs(x="",fill="Age Range of men")
+gridExtra::grid.arrange(p1,p2)
+```
+
+
+# Insights from product category:
+
+    Categroy 5,1 and 8 is the most purchased
+    Men buy more that women in every category
+    Category 10 is the most expensive
+
+```{r}
+
+table(black_friday_x$Product_Category_1)
+p1<-black_friday_x %>% group_by(Product_Category_1) %>% count() %>% ggplot(aes(x=reorder(Product_Category_1,n),y=n))+geom_col(aes(fill=as.factor(Product_Category_1)))+labs(x="",y="",title="product category perference")+theme(legend.position="none")
+p2<-black_friday_x %>% group_by(Gender,Product_Category_1) %>% count() %>% ggplot(aes(x=as.factor(Product_Category_1),y=n,fill=as.factor(Gender)))+geom_bar(stat="identity",position="dodge")+labs(x="",y="",fill="gender",title="product category perference in gender")
+p3<-black_friday_x %>% ggplot(aes(x=reorder(as.factor(Product_Category_1),Purchase),y=Purchase))+geom_boxplot()+ggtitle("Price per category")
+gridExtra::grid.arrange(p1,p2,p3)
+
+```
+
+# From the first chart, it becomes clear that males usually buy more expensive items on Black Friday, than females do. But on average both genders on average spend 6000$ on Black Friday. Also it doesnt matter whether a person is married or not, as they spend the same money. Thus marriage doesnt influence on the Purchase.
+
+#It can also seen that males buy little more when they are non married in comparsion to married males, & females buys less before marriage while after getting married they buys little more.
+
+#The most purchases are done in the city C by males and females. And both genders spend more money in the city C too.
+```{r}
+
+black_friday_x$Marital_Status <- as.factor(black_friday_x$Marital_Status)
+
+asd = ggplot(black_friday_x, aes(x=Marital_Status, y=Purchase))+ geom_boxplot()+facet_grid(~Gender)
+dsa = ggplot(black_friday_x, aes(x=City_Category, y=Purchase))+ geom_boxplot()+facet_grid(~Gender)
+
+gridExtra::grid.arrange(asd,dsa)
+
+```
+
+
+
+
+
+# How many products do they buy at once?
+
+Let's look how quantity differs accross the city groups. Most of the payments are made in B group, but there is a difference in behavior of C customers where 3 and 5 quantities are almost the same.
+
+
+
+```{r}
+typeof(overprice$City_Category)
+overprice$City_Category <- as.character(overprice$City_Category)
+
+overprice %>% 
+  count(City_Category, quantity) %>% 
+  hchart("column", hcaes(x = City_Category, y = n, group = quantity)) %>% 
+  hc_add_theme(hc_theme_elementary()) %>% 
+  hc_title(text = 'How many products do they buy at once?') %>% 
+  hc_xAxis(title = list(text = 'City category')) %>% 
+  hc_yAxis(title = list(text = 'Number of customers'))
+
+```
+
+
+# Explore target variable
+
+If you want to predict purchase amount for this dataset the first thing is to look at its distribution. As we can see from the chart below the distribution is far from normal and there are about 4 or 5 peaks there. We may consider clustering here.
+
+```{r}
+hchart(black_friday$Purchase) %>% 
+  hc_legend(enabled = F) %>% 
+  hc_title(text = 'Purchases distribution') %>% 
+  hc_add_theme(hc_theme_elementary())
+```
+
+# Is Pareto principle right at all?
+
+According to that rule, 20% of customers bring 80% of revenue, let's check on this dataset! So what I'm trying to do here:
+
+* calculate revenue got from each customers (majority of them made more than one transactions)
+* sort clients by revenue in descending order
+* calculate for each line cumulative sums of clients and revenue
+* build a line!
+
+```{r}
+aaa <- black_friday %>% 
+  group_by(User_ID) %>% 
+  summarise(revenue = as.numeric(sum(Purchase))) %>% 
+  arrange(-revenue) %>% mutate(cumsum_clients = row_number(),
+         clients_share = cumsum_clients/max(cumsum_clients),
+         cumsum_revenue = cumsum(revenue),
+         revenue_share = cumsum_revenue/max(cumsum_revenue)) 
+
+
+
+ggplot(aaa, aes(x=revenue_share)) +
+  geom_bar(aes(y=clients_share), fill="blue", stat="identity") + 
+  geom_point(aes(y=cumsum_clients)) +
+  geom_path(aes(y=cumsum_clients, group=1))
+
+```
+In our case, around 45% of clients generate 80% of revenue.
+
+
+# Building a univarte analysis function
+```{r}
+stat_function = function(x){
+    if(class(x)=="integer"|class(x)=="numeric"){
+        var_type = class(x)
+        length = length(x)
+        miss_val = sum(is.na(x))
+        mean = mean(x,na.rm = T)
+        std = sd(x,na.rm = T)
+        var = var(x,na.rm = T)
+        cv = std/mean
+        min = min(x)
+        max = max(x,na.rm = T)
+        pct = quantile(x,na.rm = T,p=c(0.75,0.85,0.90,0.95,0.99,1.0))
+        return(c(var_type=var_type,length=length,miss_val=miss_val,mean=mean,std=std,var=var,cv=cv,min=min,max=max,pct=pct))
+        }
+}
+
+num_var = names(black_friday_x)[sapply(black_friday_x,is.numeric)]
+cat_var = names(black_friday_x)[!sapply(black_friday_x,is.numeric)]
+```
+
+#Applying function on dataset
+```{r}
+mystat = apply(black_friday_x[num_var],2,stat_function)
+t(mystat)
+```
+
+
+
+#Here in data 2 variable have only miss value . 1.product_Cataogery_2 = 166986 is to much miss value in data aprox 38% 2.product_Catagory_3 = 373299 is also to much Here direct drop the variable because to much loss in data so we not repalce the value
+
+```{r}
+t(colSums(is.na(black_friday)))
+```
+
+```{r}
+black_friday_xlm <- black_friday
+black_friday_xlm$Product_Category_2 <- NULL
+black_friday_xlm$Product_Category_3 <- NULL
+black_friday_xlm$Product_ID <- NULL
+black_friday_xlm$User_ID <- NULL
+black_friday_xlm$Marital_Status <- as.factor(black_friday_xlm$Marital_Status)
+```
+
+
+```{r}
+sample = sample(1:nrow(black_friday_xlm),size = floor(nrow(black_friday_xlm)*0.7))
+train = black_friday_xlm[sample,]
+test = black_friday_xlm[-sample,]
+```
+
+
+```{r}
+lm_fit = lm(Purchase~.,data = train)
+```
+
+```{r}
+summary(lm_fit)
+```
+
+```{r}
+step = step(lm_fit)
+```
+
+```{r}
+lm_fit2 = lm(Purchase ~ Gender + Age + Occupation + City_Category + Stay_In_Current_City_Years + 
+             Marital_Status + Product_Category_1,data= train)
+```
+
+
+
+```{r}
+summary(lm_fit2)
+```
+#Interpretations:
+#R-adjusted shows that only 10% of variation in the dependent varibale purchase is explained by the variation of          independent variables, which is not so good result.
+#Males' purchases are higher by $506 than females' purchases.
+#People from age 51-55 spend lot more than teenagers(because they work and earn money!)
+#By one unit increase in occupation, purchases are increasing by around 7$. 
+#On average a person staying in the current city for 1 year does 49$ more purchases compared to a person staying in his   city less than 1 year.
+#On average a person staying in the current city for 2 years does 81$ more purchases compared to a person staying in his  city less than 1 year.
+#As it was shown in the graph, purchases done in city C are on average 731$ more than purchases done in the city A.
+
+
+```{r}
+train_prob_purchase = predict(lm_fit2,newdata = train)
+train = cbind(train,train_prob_purchase)
+
+test_prob_purchase = predict(lm_fit2,newdata = test)
+test = cbind(test,test_prob_purchase)
+```
+
+#Checking accuracy of model in train and test by MAPE,RMSE,Cor
+
+# 1. MAPE (Mean Absolute Percent Error)
+
+```{r}
+
+
+# train
+mean(abs((train$Purchase-train$train_prob_purchase)/train$Purchase))
+
+
+# test
+mean(abs((test$Purchase-test$test_prob_purchase)/test$Purchase))
+
+```
+
+
+# 2. RMSE 
+
+```{r}
+
+#train 
+sqrt(mean((train$Purchase-train$train_prob_purchase)**2))
+
+#test
+sqrt(mean((test$Purchase-test$test_prob_purchase)**2))
+
+```
+
+#3.CoR
+```{r}
+
+
+#train 
+(cor(train$Purchase,train$train_prob_purchase))
+  
+#test 
+(cor(test$Purchase,test$test_prob_purchase))
+```
+
+
+# Data Clustering
+
+
+```{r}
+library(plotly)
+library(purrr)
+library(ggplot2)
+library(dplyr)
+```
+
+```{r, message = FALSE, echo = FALSE} 
+BlackFridayForClustering <- black_friday[12]
+```
+
+## Determine The Number of Cluster{.tabset .tabset-fade .tabset-pills}
+
+```{r, message = FALSE, echo = FALSE} 
+# Use map_dbl to run many models with varying value of k (centers)
+tot_withinss <- map_dbl(1:10,  function(k){
+  model <- kmeans(x = BlackFridayForClustering, centers = k)
+  model$tot.withinss
+})
+
+# Generate a data frame containing both k and tot_withinss
+elbow_df <- data.frame(
+  k = 1:10,
+  tot_withinss = tot_withinss
+)
+
+# Plot the elbow plot
+ggplot(elbow_df, aes(x = k, y = tot_withinss)) +
+  geom_line() +
+  scale_x_continuous(breaks = 1:10)
+```  
+
+## Cluster Model{.tabset .tabset-fade .tabset-pills}
+
+```{r, message = FALSE, echo = FALSE} 
+
+# Build a kmeans model
+model_km3 <- kmeans(BlackFridayForClustering, centers = 3)
+
+# Extract the cluster assignment vector from the kmeans model
+clust_km3 <- model_km3$cluster
+
+# Create a new dataframe appending the cluster assignment
+BlackFriday_Clust <- mutate(black_friday, cluster = clust_km3)
+
+# summarise the clustering
+BlackFriday_Clust_Note <- BlackFriday_Clust %>%
+                          group_by(cluster) %>%
+                          summarise(min_purchase = min(Purchase),
+                                   max_purchase = max(Purchase),
+                                   avg_purchase = round(mean(Purchase),0))
+```
+
+```{r, message = FALSE, echo = FALSE} 
+# how many people in each cluster
+BlackFriday_Clust %>%
+group_by(City_Category, cluster) %>%
+summarise(n = n()) %>%
+ggplot(aes(x=City_Category, y = n)) +
+geom_col(aes(fill = as.factor(cluster))) +
+theme_linedraw() + 
+theme(legend.box.background	= element_rect(colour = "black"),
+      legend.background = element_rect(fill = "gainsboro"),
+      panel.background = element_rect(fill = "gainsboro", colour = "white", size = 0.5, linetype = "solid"), #theme panel settings
+      plot.background = element_rect(fill = "gainsboro"), #theme panel settings
+      panel.grid.major = element_line(size = 0.5, linetype = 'solid', colour = "white"), #theme panel settings
+      panel.grid.minor = element_line(size = 0.25, linetype = 'solid', colour = "white"), #theme panel settings
+      plot.title = element_text(hjust = 0, face = 'bold',color = 'black'), #title settings
+      plot.subtitle = element_text(face = "italic")) + #subtitle settings
+labs(x = 'City Category', y = 'Total Purchase (dollars)', title = "Black Friday", #name title and axis
+     subtitle = "Total people in each cluster by city") + #name subtitle
+guides(fill=guide_legend(title = "Cluster")) + #remove color legend
+scale_y_continuous(labels = scales::comma) #prevent scientific number in x-axis
+
+```
